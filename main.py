@@ -37,7 +37,7 @@ async def send_alert(message):
 # === Check if Indian Market is Open ===
 def is_market_open():
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)  # Close at 3:30 PM
+    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(18, 30)  # Close at 3:30 PM
 
 # === Buy/Sell Signal Calculation ===
 def calculate_signal_score(rsi, prev_rsi, price, sma, macd_line, signal_line, volume, avg_volume):
