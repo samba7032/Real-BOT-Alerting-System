@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-
 app = None
 signal_cache = {}
 
@@ -38,7 +37,7 @@ async def send_alert(message):
 # === Check if Indian Market is Open ===
 def is_market_open():
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(18, 30)
+    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)  # Close at 3:30 PM
 
 # === Buy/Sell Signal Calculation ===
 def calculate_signal_score(rsi, prev_rsi, price, sma, macd_line, signal_line, volume, avg_volume):
@@ -93,10 +92,18 @@ def calculate_signal_score(rsi, prev_rsi, price, sma, macd_line, signal_line, vo
 
     return buy_score, buy_notes, sell_score, sell_notes
 
-# === Signal Checker ===
+# === Signal Checker with Retry ===
 async def check_signal(symbol):
     try:
-        data = yf.download(symbol, interval='1m', period='1d', auto_adjust=True, progress=False)
+        for attempt in range(2):
+            try:
+                data = yf.download(symbol, interval='1m', period='1d', auto_adjust=True, progress=False, timeout=10)
+                break
+            except Exception as e:
+                if attempt == 1:
+                    raise e
+                await asyncio.sleep(1)
+
         if data.empty or len(data) < 25:
             return
 
@@ -147,6 +154,7 @@ async def check_signal(symbol):
 
 ⚠️ Not financial advice. Review manually before acting.
 """
+
         elif sell_score >= 6:
             classification = "<b>📉 STRONG SELL Opportunity</b>"
             if signal_cache.get(symbol) != classification:
@@ -173,7 +181,7 @@ async def check_signal(symbol):
     except Exception as e:
         print(f"❌ Error for {symbol}: {e}")
 
-# === Main Async Loop ===
+# === Main Async Loop (with batching) ===
 async def main():
     global app
     symbols = load_all_nse_symbols()
@@ -182,8 +190,12 @@ async def main():
 
     while True:
         if is_market_open():
-            tasks = [check_signal(symbol) for symbol in symbols]
-            await asyncio.gather(*tasks)
+            batch_size = 25
+            for i in range(0, len(symbols), batch_size):
+                batch = symbols[i:i + batch_size]
+                tasks = [check_signal(symbol) for symbol in batch]
+                await asyncio.gather(*tasks)
+                await asyncio.sleep(5)  # short delay between batches
         else:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] 💤 Market closed. Waiting...")
         await asyncio.sleep(60)
