@@ -188,16 +188,22 @@ async def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     await send_alert("✅ Bot Started. Monitoring stocks...")
 
+    last_heartbeat = datetime.now()
+
     while True:
+        now = datetime.now()
+        
         if is_market_open():
-            batch_size = 25
-            for i in range(0, len(symbols), batch_size):
-                batch = symbols[i:i + batch_size]
-                tasks = [check_signal(symbol) for symbol in batch]
-                await asyncio.gather(*tasks)
-                await asyncio.sleep(5)  # short delay between batches
+            tasks = [check_signal(symbol) for symbol in symbols]
+            await asyncio.gather(*tasks)
         else:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] 💤 Market closed. Waiting...")
+            print(f"[{now.strftime('%H:%M:%S')}] 💤 Market closed. Waiting...")
+
+        # ⏱️ Send heartbeat every 2 hours
+        if (now - last_heartbeat).seconds >= 7200:  # 2 hours = 7200 seconds
+            await send_alert("⏳ Heartbeat Check: Bot is running fine ✅")
+            last_heartbeat = now
+
         await asyncio.sleep(60)
 
 # === Run the Bot ===
