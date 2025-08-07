@@ -1,2 +1,2 @@
-start: python main_final.py
+start: python main.py
 
