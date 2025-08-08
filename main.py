@@ -82,6 +82,13 @@ async def check_signal(symbol):
             try:
                 data = yf.download(symbol, interval='5m', period='1d',
                                     auto_adjust=True, progress=False, timeout=8)
+                # Flatten MultiIndex if needed
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = [col[0] for col in data.columns]
+
+                # Ensure Close/Volume are 1-D Series
+                close = data['Close'].squeeze()
+                volume = data['Volume'].squeeze()
                 break
             except Exception as e:
                 if attempt == 1:
@@ -90,9 +97,6 @@ async def check_signal(symbol):
 
         if data.empty or len(data) < 25:
             return
-
-        close = data['Close']
-        volume = data['Volume']
 
         rsi = ta.momentum.RSIIndicator(close=close, window=14).rsi()
         macd = ta.trend.MACD(close=close)
