@@ -20,7 +20,7 @@ def load_all_nse_symbols(csv_path='EQUITY_L.csv'):
     print("📅 Loading NSE stock list from local CSV...")
     try:
         df = pd.read_csv(csv_path)
-        df.columns = df.columns.str.strip()  # 🧹 Remove leading/trailing whitespace
+        df.columns = df.columns.str.strip()
         df = df[df['SERIES'] == 'EQ']  # Only EQ series
         symbols = df['SYMBOL'].unique().tolist()
         print(f"✅ Loaded {len(symbols)} NSE symbols.")
@@ -37,67 +37,51 @@ async def send_alert(message):
 # === Check if Indian Market is Open ===
 def is_market_open():
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)  # Close at 3:30 PM
+    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)
 
 # === Buy/Sell Signal Calculation ===
 def calculate_signal_score(rsi, prev_rsi, price, sma, macd_line, signal_line, volume, avg_volume):
     buy_score = sell_score = 0
     buy_notes, sell_notes = [], []
 
+    # BUY conditions
     if rsi < 30 and rsi > prev_rsi:
-        buy_score += 2
-        buy_notes.append("RSI Rising from Oversold ✅")
+        buy_score += 2; buy_notes.append("RSI Rising from Oversold ✅")
     elif rsi < 30:
-        buy_score += 1
-        buy_notes.append("RSI Oversold ❗")
-
+        buy_score += 1; buy_notes.append("RSI Oversold ❗")
     if price > sma:
-        buy_score += 1
-        buy_notes.append("Price Above SMA(20) ✅")
-
+        buy_score += 1; buy_notes.append("Price Above SMA(20) ✅")
     if macd_line > signal_line:
-        buy_score += 2
-        buy_notes.append("MACD Bullish Crossover ✅")
-
+        buy_score += 2; buy_notes.append("MACD Bullish Crossover ✅")
     if volume > 1.5 * avg_volume:
-        buy_score += 1
-        buy_notes.append("Volume Spike ✅")
-
+        buy_score += 1; buy_notes.append("Volume Spike ✅")
     if prev_rsi < 30 and rsi >= 30:
-        buy_score += 2
-        buy_notes.append("RSI Crossover 30 ➡️ ✅")
+        buy_score += 2; buy_notes.append("RSI Crossover 30 ➡️ ✅")
 
+    # SELL conditions
     if rsi > 70 and rsi < prev_rsi:
-        sell_score += 2
-        sell_notes.append("RSI Falling from Overbought ❗")
+        sell_score += 2; sell_notes.append("RSI Falling from Overbought ❗")
     elif rsi > 70:
-        sell_score += 1
-        sell_notes.append("RSI Overbought ⚠️")
-
+        sell_score += 1; sell_notes.append("RSI Overbought ⚠️")
     if price < sma:
-        sell_score += 1
-        sell_notes.append("Price Below SMA(20) ⚠️")
-
+        sell_score += 1; sell_notes.append("Price Below SMA(20) ⚠️")
     if macd_line < signal_line:
-        sell_score += 2
-        sell_notes.append("MACD Bearish Crossover ⚠️")
-
+        sell_score += 2; sell_notes.append("MACD Bearish Crossover ⚠️")
     if volume > 1.5 * avg_volume:
-        sell_score += 1
-        sell_notes.append("Volume Spike During Drop 📉")
-
+        sell_score += 1; sell_notes.append("Volume Spike During Drop 📉")
     if prev_rsi > 70 and rsi <= 70:
-        sell_score += 2
-        sell_notes.append("RSI Crossed Below 70 ❗")
+        sell_score += 2; sell_notes.append("RSI Crossed Below 70 ❗")
 
     return buy_score, buy_notes, sell_score, sell_notes
 
-# === Signal Checker with Retry ===
+# === Signal Checker ===
 async def check_signal(symbol):
     try:
+        # Fetch latest 5m data
         for attempt in range(2):
             try:
-                data = yf.download(symbol, interval='1m', period='1d', auto_adjust=True, progress=False, timeout=10)
+                data = yf.download(symbol, interval='5m', period='1d',
+                                    auto_adjust=True, progress=False, timeout=8)
                 break
             except Exception as e:
                 if attempt == 1:
@@ -107,23 +91,18 @@ async def check_signal(symbol):
         if data.empty or len(data) < 25:
             return
 
-        close_array = data['Close'].values.squeeze()
-        volume_array = data['Volume'].values.squeeze()
-
-        close = pd.Series(close_array, index=data.index)
-        volume = pd.Series(volume_array, index=data.index)
+        close = data['Close']
+        volume = data['Volume']
 
         rsi = ta.momentum.RSIIndicator(close=close, window=14).rsi()
         macd = ta.trend.MACD(close=close)
-        macd_line = macd.macd()
-        macd_signal = macd.macd_signal()
         sma = ta.trend.SMAIndicator(close=close, window=20).sma_indicator()
 
         last_price = close.iloc[-1]
         last_rsi = rsi.iloc[-1]
         prev_rsi = rsi.iloc[-2]
-        last_macd = macd_line.iloc[-1]
-        last_signal = macd_signal.iloc[-1]
+        last_macd = macd.macd().iloc[-1]
+        last_signal = macd.macd_signal().iloc[-1]
         last_sma = sma.iloc[-1]
         last_volume = volume.iloc[-1]
         avg_volume = volume.iloc[-20:].mean()
@@ -139,7 +118,6 @@ async def check_signal(symbol):
             classification = "<b>🚀 STRONG BUY Opportunity</b>"
             if signal_cache.get(symbol) != classification:
                 signal_cache[symbol] = classification
-                criteria = '\n- '.join(buy_notes)
                 message = f"""
 {classification} for <b>{symbol}</b>
 
@@ -150,7 +128,7 @@ async def check_signal(symbol):
 • Volume: {int(last_volume):,} (Avg: {int(avg_volume):,})
 
 📊 Criteria:
-- {criteria}
+- {'\n- '.join(buy_notes)}
 
 ⚠️ Not financial advice. Review manually before acting.
 """
@@ -159,7 +137,6 @@ async def check_signal(symbol):
             classification = "<b>📉 STRONG SELL Opportunity</b>"
             if signal_cache.get(symbol) != classification:
                 signal_cache[symbol] = classification
-                criteria = '\n- '.join(sell_notes)
                 message = f"""
 {classification} for <b>{symbol}</b>
 
@@ -170,7 +147,7 @@ async def check_signal(symbol):
 • Volume: {int(last_volume):,} (Avg: {int(avg_volume):,})
 
 📊 Criteria:
-- {criteria}
+- {'\n- '.join(sell_notes)}
 
 ⚠️ Not financial advice. Review manually before acting.
 """
@@ -181,7 +158,7 @@ async def check_signal(symbol):
     except Exception as e:
         print(f"❌ Error for {symbol}: {e}")
 
-# === Main Async Loop (with batching) ===
+# === Main Async Loop ===
 async def main():
     global app
     symbols = load_all_nse_symbols()
@@ -192,19 +169,17 @@ async def main():
 
     while True:
         now = datetime.now()
-        
         if is_market_open():
             tasks = [check_signal(symbol) for symbol in symbols]
             await asyncio.gather(*tasks)
         else:
             print(f"[{now.strftime('%H:%M:%S')}] 💤 Market closed. Waiting...")
 
-        # ⏱️ Send heartbeat every 2 hours
-        if (now - last_heartbeat).seconds >= 7200:  # 2 hours = 7200 seconds
+        if (now - last_heartbeat).seconds >= 7200:
             await send_alert("⏳ Heartbeat Check: Bot is running fine ✅")
             last_heartbeat = now
 
-        await asyncio.sleep(60)
+        await asyncio.sleep(60)  # check every minute
 
 # === Run the Bot ===
 if __name__ == "__main__":
